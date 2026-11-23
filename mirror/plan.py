@@ -1,9 +1,10 @@
 """Decide which repository holds each asset, and which repositories are out of date.
 
-    python3 -m mirror.plan SOURCE [--matrix] [--limit N] [--only REPO,REPO]
+    python3 -m mirror.plan SOURCE[,SOURCE...] [--matrix] [--limit N] [--only REPO,REPO]
 
-Reads the source's catalogue, updates plan/SOURCE.json and prints the repositories that need a sync (as a JSON list
-with --matrix, for a GitHub Actions matrix; one per line without).
+Reads each source's catalogue, updates plan/SOURCE.json and lists the repositories to set up (seed: create them and
+give them their workflows) and the ones to start (dispatch: they fill or update themselves), as GitHub Actions outputs
+with --matrix.
 
 An asset keeps its repository for good, so links to it never move: a new asset goes into the last repository of its
 group while that stays under common.REPO_LIMIT, otherwise into a new one (name, name-2, name-3, ...). A repository is
@@ -12,6 +13,7 @@ or when it does not exist yet.
 """
 import argparse
 import concurrent.futures
+import inspect
 import json
 import sys
 import urllib.error
@@ -21,8 +23,14 @@ from mirror.common import FILE_LIMIT, ORG, REPO_LIMIT, get, load_plan, load_sour
 
 
 def asset_bytes(files):
-    # git stores identical content once, so a file shared between resolutions counts once.
-    return sum({f["md5"] or f["path"]: f["size"] for f in files}.values())
+    # git stores identical content once, so a file shared between resolutions counts once. A ZIP is counted at its
+    # own size (its contents are mostly images, which do not compress further).
+    return sum({f.get("md5") or f["path"]: f["size"] for f in files}.values())
+
+
+def too_big(files):
+    """The largest file that would have to go into git as it is (ZIPs are unpacked; glTF buffers can be split)."""
+    return max((f["size"] for f in files if not f.get("unzip") and not f.get("splittable")), default=0)
 
 
 def assign(plan, src, aid, meta, size):
@@ -48,16 +56,12 @@ def mirrored_state(repo):
         raise
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("source")
-    ap.add_argument("--matrix", action="store_true")
-    ap.add_argument("--limit", type=int, default=0, help="at most this many repositories (0: all)")
-    ap.add_argument("--only", default="", help="comma-separated repositories to consider")
-    opts = ap.parse_args()
-    src = load_source(opts.source)
-    plan = load_plan(opts.source)
-    cat = src.catalogue()
+def plan_source(name, only=(), limit=0):
+    """Update plan/NAME.json. Returns (seed, dispatch, repos) for that source."""
+    src = load_source(name)
+    plan = load_plan(name)
+    takes_previous = "previous" in inspect.signature(src.catalogue).parameters
+    cat = src.catalogue(plan) if takes_previous else src.catalogue()
 
     gone = [a for a in plan["assets"] if a not in cat]
     for aid in gone:
@@ -67,53 +71,79 @@ def main():
         del plan["skipped"][aid]
     known = lambda aid: plan["assets"].get(aid, {}).get("hash") or plan["skipped"].get(aid, {}).get("hash")
     todo = [aid for aid, m in sorted(cat.items()) if known(aid) != m["hash"]]
-    with concurrent.futures.ThreadPoolExecutor(6) as pool:
+    with concurrent.futures.ThreadPoolExecutor(getattr(src, "THREADS", 6)) as pool:
         lists = dict(zip(todo, pool.map(lambda a: src.files(a, cat[a]), todo)))
     sizes = {aid: asset_bytes(fs) for aid, fs in lists.items()}
-    for aid in todo:
-        # A glTF model's .bin can be split into parts by sync.py; any other file must fit as it is.
-        largest = max((f["size"] for f in lists[aid] if not (cat[aid]["kind"] == "models" and f["path"].endswith(".bin"))), default=0)
+    for aid in todo:  # sorted, so a first run fills repositories in a stable order
+        largest = too_big(lists[aid])
         plan["skipped"].pop(aid, None)
-        if largest > FILE_LIMIT:
+        if largest > FILE_LIMIT and all(not f.get("unzip") and not f.get("splittable") and f["size"] > FILE_LIMIT for f in lists[aid]):
+            # Nothing of it would fit in git.
             old = plan["assets"].pop(aid, None)
             if old:
                 plan["repos"][old["repo"]]["bytes"] -= old["bytes"]
             plan["skipped"][aid] = {"hash": cat[aid]["hash"], "why": f"a file of {largest / 1e6:.0f} MB, over GitHub's limit"}
-            continue  # sorted, so a first run fills repositories in a stable order
+            continue
         old = plan["assets"].get(aid)
         if old:
             plan["repos"][old["repo"]]["bytes"] += sizes[aid] - old["bytes"]
             old.update(hash=cat[aid]["hash"], bytes=sizes[aid])
         else:
             plan["assets"][aid] = {"repo": assign(plan, src, aid, cat[aid], sizes[aid]), "hash": cat[aid]["hash"], "bytes": sizes[aid]}
-    save_plan(opts.source, plan)
+    # What a repository needs to know about its assets (names, authors, pictures, links, files), so its own update
+    # does not have to read the whole catalogue.
+    for aid, a in plan["assets"].items():
+        a["meta"] = {k: v for k, v in cat[aid].items() if k != "hash"}
+    save_plan(name, plan)
 
     repos = sorted(plan["repos"])
-    if opts.only:
-        repos = [r for r in repos if r in opts.only.split(",")]
+    if only:
+        repos = [r for r in repos if r in only]
     want = {r: {} for r in repos}
     for aid, a in plan["assets"].items():
         if a["repo"] in want:
             want[a["repo"]][aid] = a["hash"]
     with concurrent.futures.ThreadPoolExecutor(8) as pool:
         have = dict(zip(repos, pool.map(mirrored_state, repos)))
-    # central: new repositories, and ones whose workflow files are older than the template (only cc0-mirror's token
-    # may write workflows). dispatch: the rest that are out of date; their own update workflow is started.
-    central = [r for r in repos if have[r] is None or have[r].get("template", 0) != TEMPLATE_VERSION]
-    dispatch = [r for r in repos if r not in central and have[r]["assets"] != want[r]]
-    if opts.limit:
-        central, dispatch = central[: opts.limit], dispatch[: opts.limit]
-    print(f"{opts.source}: {len(plan['assets'])} assets in {len(plan['repos'])} repositories; "
+    # seed: repositories that do not exist yet or have no workflows, or older workflows than the template (only
+    # cc0-mirror's token may create repositories and write workflows). dispatch: every repository whose files are not
+    # what the plan says, seeded ones included: each fills or updates itself in its own update workflow.
+    seed = [r for r in repos if have[r] is None or have[r].get("template", 0) != TEMPLATE_VERSION]
+    dispatch = [r for r in repos if have[r] is None or have[r].get("assets") != want[r]]
+    if limit:
+        dispatch = dispatch[:limit]
+        seed = [r for r in seed if r in dispatch or have[r] is not None][:limit]
+    print(f"{name}: {len(plan['assets'])} assets in {len(plan['repos'])} repositories; "
           f"{len(todo)} new or changed, {len(gone)} gone, {len(plan['skipped'])} skipped; "
-          f"{len(central)} to fill here, {len(dispatch)} to update themselves", file=sys.stderr)
-    if opts.matrix:
-        print(f"central={json.dumps(central)}")
-        print(f"central_count={len(central)}")
-        print(f"dispatch={json.dumps(dispatch)}")
-        print(f"repos={json.dumps(sorted(plan['repos']))}")
-    else:
-        print("\n".join(f"{r}\tcentral" for r in central) + ("\n" if central else "") + "\n".join(f"{r}\tdispatch" for r in dispatch))
+          f"{len(seed)} to set up, {len(dispatch)} to fill or update themselves", file=sys.stderr)
+    return seed, dispatch, repos
 
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("sources", help="comma-separated, e.g. polyhaven,ambientcg")
+    ap.add_argument("--matrix", action="store_true", help="print GitHub Actions outputs")
+    ap.add_argument("--limit", type=int, default=0, help="at most this many repositories per source (0: all)")
+    ap.add_argument("--only", default="", help="comma-separated repositories to consider")
+    opts = ap.parse_args()
+    only = set(filter(None, opts.only.split(",")))
+    seed, dispatch, repos = [], [], []
+    for name in filter(None, opts.sources.split(",")):
+        s, d, r = plan_source(name, only, opts.limit)
+        seed += [{"source": name, "repo": x} for x in s]
+        dispatch += [{"source": name, "repo": x} for x in d]
+        repos += [{"source": name, "repo": x} for x in r]
+    seed = seed[:250]  # a matrix holds at most 256 jobs; the rest are set up next run
+    if opts.matrix:
+        print(f"seed={json.dumps(seed)}")
+        print(f"seed_count={len(seed)}")
+        print(f"dispatch={json.dumps(dispatch)}")
+        print(f"repos={json.dumps(repos)}")
+    else:
+        for item in seed:
+            print(f"{item['source']}\t{item['repo']}\tseed")
+        for item in dispatch:
+            print(f"{item['source']}\t{item['repo']}\tdispatch")
 
 if __name__ == "__main__":
     main()

@@ -2,7 +2,9 @@
 import json
 import os
 import re
+import threading
 import time
+import urllib.parse
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -13,14 +15,33 @@ ORG = "zuujis-cc0"
 UA = "zuujis-cc0-mirror (+https://github.com/zuujis-cc0/cc0-mirror)"
 # GitHub recommends repositories under 1 GB; a mirror repository is filled to at most this.
 REPO_LIMIT = 900_000_000
-# git refuses files over 100 MiB; an asset with a bigger file is left out (listed as skipped in the plan).
-FILE_LIMIT = 95_000_000
+# git refuses files over 100 MiB; a bigger file is left out (an asset made only of one is skipped in the plan).
+FILE_LIMIT = 100_000_000  # 95.4 MiB, under git's 100 MiB
 HUB = f"https://github.com/{ORG}/free-game-assets"
+# Seconds to leave between requests to a host, across all threads (a source sets its own, e.g. robots.txt Crawl-delay).
+SPACING = {}
+_last, _lock = {}, threading.Lock()
+
+
+def _wait_turn(url):
+    host = urllib.parse.urlsplit(url).hostname or ""
+    gap = SPACING.get(host, 0)
+    if not gap:
+        return
+    while True:
+        with _lock:
+            now = time.monotonic()
+            ready = _last.get(host, 0) + gap
+            if now >= ready:
+                _last[host] = now
+                return
+        time.sleep(ready - now)
 
 
 def get(url, tries=5, timeout=120):
     """The body of url, retrying network errors and 5xx/429 with backoff."""
     for attempt in range(tries):
+        _wait_turn(url)
         try:
             req = urllib.request.Request(url, headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -31,7 +52,7 @@ def get(url, tries=5, timeout=120):
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             if attempt == tries - 1:
                 raise
-        time.sleep(2 ** attempt)
+        time.sleep(min(60, 2 ** attempt * 3))
 
 
 def get_json(url):

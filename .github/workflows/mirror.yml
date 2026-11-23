@@ -1,34 +1,31 @@
-# Plans the zuujis-cc0 mirror repositories, creates and fills new ones, and starts the others' own updates.
+# Creates the zuujis-cc0 mirror repositories and gives each what it needs to fill and update itself.
 #
-# Each mirror repository updates itself (its .github/workflows/update.yml, weekly at its own time, with its own
-# token). This workflow does what a repository cannot do for itself:
-#   plan:     reads the source's catalogue, gives every new asset a repository (plan/SOURCE.json, committed here).
-#   fill:     one job per repository that is new, or whose workflow files are older than the template: creates it,
-#             downloads and checks its files, pushes (needs MIRROR_TOKEN).
-#   dispatch: starts the update workflow of repositories the plan has given new or changed assets, and keeps every
-#             repository's schedule switched on (GitHub turns schedules off after 60 days without activity).
+# Every mirror repository fills and updates itself, in its own .github/workflows/update.yml (with its own token,
+# weekly at its own time, or when started). This workflow does only what a repository cannot do for itself:
+#   plan:     reads each source's catalogue and gives every new asset a repository (plan/SOURCE.json, committed here).
+#   seed:     creates repositories that do not exist yet and pushes their workflows (only MIRROR_TOKEN may create
+#             repositories and write workflows); also brings older workflows up to the template.
+#   dispatch: starts the update workflow of every repository whose files are not what the plan says (new ones fill
+#             themselves this way), a few per source at a time, and keeps every repository's schedule switched on.
 #
-# Weekly, or by hand (Actions → mirror → Run workflow) with a source, an optional list of repositories and a limit.
-# MIRROR_TOKEN is an organisation secret: a fine-grained token for zuujis-cc0 with Administration, Contents,
-# Workflows and Actions read/write on all its repositories (see README.md). Only actions published by GitHub,
-# pinned by commit.
+# Daily, or by hand (Actions → mirror → Run workflow). MIRROR_TOKEN is an organisation secret: a fine-grained token
+# for zuujis-cc0 with Administration, Contents, Workflows and Actions read/write on all its repositories (see
+# README.md). Only actions published by GitHub, pinned by commit.
 name: mirror
 
 on:
   schedule:
-    - cron: "17 3 * * 1"
+    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
-      source:
-        description: Source to mirror
-        default: polyhaven
-        type: choice
-        options: [polyhaven]
+      sources:
+        description: Sources (comma-separated)
+        default: polyhaven,ambientcg,opengameart
       only:
         description: Only these repositories (comma-separated; empty for all)
         default: ""
       limit:
-        description: At most this many repositories to fill this run (0 for all)
+        description: At most this many repositories per source this run (0 for all)
         default: "0"
 
 permissions:
@@ -39,15 +36,15 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SOURCE: ${{ inputs.source || 'polyhaven' }}
+  SOURCES: ${{ inputs.sources || 'polyhaven,ambientcg,opengameart' }}
 
 jobs:
   plan:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 340
     outputs:
-      central: ${{ steps.plan.outputs.central }}
-      central_count: ${{ steps.plan.outputs.central_count }}
+      seed: ${{ steps.plan.outputs.seed }}
+      seed_count: ${{ steps.plan.outputs.seed_count }}
       dispatch: ${{ steps.plan.outputs.dispatch }}
       repos: ${{ steps.plan.outputs.repos }}
     steps:
@@ -57,55 +54,55 @@ jobs:
         env:
           ONLY: ${{ inputs.only }}
           LIMIT: ${{ inputs.limit || '0' }}
-        run: python3 -m mirror.plan "$SOURCE" --matrix --only "$ONLY" --limit "$LIMIT" >> "$GITHUB_OUTPUT"
+          OGA_BUDGET: "16200" # 4.5 hours of OpenGameArt's catalogue per run (it asks for 10 s between requests)
+        run: python3 -m mirror.plan "$SOURCES" --matrix --only "$ONLY" --limit "$LIMIT" >> "$GITHUB_OUTPUT"
       - name: Save the plan
         # plan/checked.txt changes every run, so this repository never goes 60 days without activity.
+        if: ${{ !cancelled() }}
         run: |
           date -u +%Y-%m-%d > plan/checked.txt
           git add plan
           if ! git diff --cached --quiet; then
             git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit -q -m "Plan: $SOURCE"
+              commit -q -m "Plan: $SOURCES"
             git push -q
           fi
 
-  fill:
+  seed:
     needs: plan
-    if: needs.plan.outputs.central_count != '0'
+    if: needs.plan.outputs.seed_count != '0'
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 15
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 8
       matrix:
-        repo: ${{ fromJSON(needs.plan.outputs.central) }}
+        include: ${{ fromJSON(needs.plan.outputs.seed) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main # the plan job may have just pushed
+          ref: main # the plan job has just pushed
           persist-credentials: false
-      - name: Fill ${{ matrix.repo }}
+      - name: Set up ${{ matrix.repo }}
         env:
           MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          SOURCE: ${{ matrix.source }}
           REPO: ${{ matrix.repo }}
-        run: python3 -m mirror.sync "$SOURCE" "$REPO" --workdir "$RUNNER_TEMP/work"
+        run: python3 -m mirror.sync "$SOURCE" "$REPO" --seed --workdir "$RUNNER_TEMP/work"
 
   dispatch:
-    needs: [plan, fill]
+    needs: [plan, seed]
     if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 350
     steps:
-      - name: Start updates and keep schedules on
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Start the repositories' own updates
         env:
-          GH_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
           DISPATCH: ${{ needs.plan.outputs.dispatch }}
           REPOS: ${{ needs.plan.outputs.repos }}
-        run: |
-          for r in $(jq -r '.[]' <<<"$REPOS"); do
-            gh api -X PUT "repos/zuujis-cc0/$r/actions/workflows/update.yml/enable" --silent 2>/dev/null || true
-          done
-          for r in $(jq -r '.[]' <<<"$DISPATCH"); do
-            echo "starting $r"
-            gh api -X POST "repos/zuujis-cc0/$r/actions/workflows/update.yml/dispatches" -f ref=main --silent
-          done
+        run: python3 -m mirror.dispatch "$DISPATCH" "$REPOS" --budget 19800

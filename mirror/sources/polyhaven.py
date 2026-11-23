@@ -17,8 +17,10 @@ SUPPORT_URL = "https://www.patreon.com/polyhaven/overview"
 API = "https://api.polyhaven.com"
 KINDS = {0: "hdris", 1: "textures", 2: "models"}
 RESOLUTIONS = ("1k", "2k")
+MAX_PARALLEL = 6
 # Map keys of a texture that are not maps.
 NOT_MAPS = {"blend", "gltf", "mtlx", "usd", "fbx"}
+KIND_TITLES = {"textures": "textures", "models": "models", "hdris": "HDRIs"}
 ABOUT = {
     "textures": "PBR textures as 1K and 2K JPG maps (colour, normal (GL and DX), roughness, AO, displacement and more).",
     "models": "3D models as glTF at 1K and 2K texture resolution, each folder self-contained (`.gltf`, `.bin`, `textures/`).",
@@ -42,6 +44,7 @@ def catalogue():
             "authors": sorted(a.get("authors", {})),
             "hash": a.get("files_hash") or "",
             "page": f"{SITE}/a/{aid}",
+            "thumb_ext": "webp",
             "thumb": (a.get("thumbnail_url") or f"https://cdn.polyhaven.com/asset_img/thumbs/{aid}.png?width=256&height=256&format=webp")
             .replace("width=256", "width=192").replace("height=256", "height=192"),
         }
@@ -55,7 +58,8 @@ def repo_base(group):
 
 
 def _file(path, node):
-    return {"path": path, "url": node["url"], "size": node["size"], "md5": node.get("md5", "")}
+    # A model's .bin may be over git's limit: sync.py splits it into parts (mirror/gltf_split.py).
+    return {"path": path, "url": node["url"], "size": node["size"], "md5": node.get("md5", ""), "splittable": path.endswith(".bin")}
 
 
 def files(aid, meta):
