@@ -5,6 +5,9 @@ Read README.md first. The rules the owner set:
 - **Every mirror repository fills and updates itself.** cc0-mirror only creates a repository and gives it what it
   needs (`sync.py --seed`: workflows, LICENSE, a placeholder README); the files arrive through the repository's own
   `update.yml` (`sync.py --self`). Do not add a path where cc0-mirror pushes asset files into a repository.
+- **Nothing tied to one account.** Who it runs for comes from `MIRROR_ORG` / `MIRROR_REPO` (set by the workflows),
+  then `config.json`; account-specific text (name, links, report form) only from `config.json`'s extras. Never write
+  `zuujis-cc0` into code or templates.
 - **Respect each source.** Poly Haven: a User-Agent naming the client (`common.UA`). OpenGameArt: robots.txt asks for
   10 seconds between requests; `common.SPACING` enforces it and `MAX_PARALLEL = 1` keeps one OpenGameArt repository
   filling at a time. itch.io disallows `/game/download/` in robots.txt, so it is not mirrored. Never get around a

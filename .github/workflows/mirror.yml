@@ -1,4 +1,4 @@
-# Creates the zuujis-cc0 mirror repositories and gives each what it needs to fill and update itself.
+# Creates the mirror repositories (in the account or organisation that owns this repository) and gives each what it needs to fill and update itself.
 #
 # Every mirror repository fills and updates itself, in its own .github/workflows/update.yml (with its own token,
 # weekly at its own time, or when started). This workflow does only what a repository cannot do for itself:
@@ -9,7 +9,7 @@
 #             themselves this way), a few per source at a time, and keeps every repository's schedule switched on.
 #
 # Daily, or by hand (Actions → mirror → Run workflow). MIRROR_TOKEN is an organisation secret: a fine-grained token
-# for zuujis-cc0 with Administration, Contents, Workflows and Actions read/write on all its repositories (see
+# for this repository's owner with Administration, Contents, Workflows and Actions read/write on all its repositories (see
 # README.md). Only actions published by GitHub, pinned by commit.
 name: mirror
 
@@ -36,6 +36,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  MIRROR_ORG: ${{ github.repository_owner }}
+  MIRROR_REPO: ${{ github.repository }}
   SOURCES: ${{ inputs.sources || 'polyhaven,ambientcg,opengameart' }}
 
 jobs:

@@ -19,7 +19,7 @@ import sys
 import urllib.error
 
 from mirror.sync import TEMPLATE_VERSION
-from mirror.common import FILE_LIMIT, ORG, REPO_LIMIT, get, load_plan, load_source, save_plan
+from mirror.common import need_org, FILE_LIMIT, ORG, REPO_LIMIT, get, load_plan, load_source, save_plan
 
 
 def asset_bytes(files):
@@ -126,6 +126,7 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="at most this many repositories per source (0: all)")
     ap.add_argument("--only", default="", help="comma-separated repositories to consider")
     opts = ap.parse_args()
+    need_org()
     only = set(filter(None, opts.only.split(",")))
     seed, dispatch, repos = [], [], []
     for name in filter(None, opts.sources.split(",")):

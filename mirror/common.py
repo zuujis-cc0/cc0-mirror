@@ -10,14 +10,23 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-ORG = "zuujis-cc0"
-# Sources ask that automated clients name themselves (Poly Haven's API terms require it).
-UA = "zuujis-cc0-mirror (+https://github.com/zuujis-cc0/cc0-mirror)"
+# Who this runs for. On GitHub the workflows set MIRROR_ORG and MIRROR_REPO, so a copy of this repository in another
+# account or organisation works there without changes; config.json is for local runs and for the optional extras.
+CONFIG = json.loads((ROOT / "config.json").read_text()) if (ROOT / "config.json").exists() else {}
+ORG = os.environ.get("MIRROR_ORG") or CONFIG.get("org") or ""
+CODE_REPO = os.environ.get("MIRROR_REPO") or CONFIG.get("code_repo") or (f"{ORG}/cc0-mirror" if ORG else "")
+# The extras (display name, a link to more assets, a private report form) belong to the account config.json was
+# written for; a copy running elsewhere leaves them out until its own config.json names its own account.
+_OWN = CONFIG.get("org") == ORG
+NAME = (CONFIG.get("name") if _OWN else None) or ORG
+MORE_ASSETS = CONFIG.get("more_assets") if _OWN else None
+REPORT_URL = CONFIG.get("report_url") if _OWN else None
+# Sources ask that automated clients name themselves (Poly Haven's API terms require it): this repository's address.
+UA = f"{CODE_REPO.rsplit('/', 1)[-1] or 'cc0-mirror'} (+https://github.com/{CODE_REPO})"
 # GitHub recommends repositories under 1 GB; a mirror repository is filled to at most this.
-REPO_LIMIT = 900_000_000
+REPO_LIMIT = int(CONFIG.get("repo_limit", 900_000_000))
 # git refuses files over 100 MiB; a bigger file is left out (an asset made only of one is skipped in the plan).
 FILE_LIMIT = 100_000_000  # 95.4 MiB, under git's 100 MiB
-HUB = f"https://github.com/{ORG}/free-game-assets"
 # Seconds to leave between requests to a host, across all threads (a source sets its own, e.g. robots.txt Crawl-delay).
 SPACING = {}
 _last, _lock = {}, threading.Lock()
@@ -76,6 +85,11 @@ def gh(method, path, body=None, token=None, ok=(200, 201, 204)):
         if e.code in ok:
             return e.code, None
         return e.code, (json.loads(raw) if raw[:1] in (b"{", b"[") else raw.decode(errors="replace"))
+
+
+def need_org():
+    if not ORG or "/" not in CODE_REPO:
+        raise SystemExit("Set MIRROR_ORG and MIRROR_REPO (owner/name of this code), or \"org\" and \"code_repo\" in config.json")
 
 
 def slug(text):

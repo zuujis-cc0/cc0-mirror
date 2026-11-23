@@ -93,6 +93,7 @@ class TemplateTest(unittest.TestCase):
         text = sync.render_update(S, "polyhaven-models-nature-2")
         self.assertNotIn("@", text.replace("actions/checkout@", ""))
         self.assertIn("python3 -m mirror.sync polyhaven polyhaven-models-nature-2 --self", text)
+        self.assertIn(f"repository: {sync.CODE_REPO}", text)
         minute, hour, _, _, dow = sync.cron_for("polyhaven-models-nature-2").split()
         self.assertTrue(0 <= int(minute) < 60 and 0 <= int(hour) < 24 and 0 <= int(dow) < 7)
 

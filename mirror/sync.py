@@ -4,7 +4,7 @@
     python3 -m mirror.sync SOURCE REPO --self DIR                  # the repository's own update workflow
     python3 -m mirror.sync SOURCE REPO --dry-run [--workdir DIR]   # try it locally; touches nothing on GitHub
 
---seed creates the repository in the zuujis-cc0 organisation if it is missing and pushes its workflows (update and
+--seed creates the repository in the account or organisation MIRROR_ORG names if it is missing and pushes its workflows (update and
 check), LICENSE and a README saying it is filling itself; only cc0-mirror's token can do that, because a repository's
 own token may not create repositories or write workflows. Everything else happens in the repository itself, in its
 update workflow (--self): it downloads every file the plan (cc0-mirror's plan/SOURCE.json) gives it, each checked
@@ -30,14 +30,14 @@ import zipfile
 from pathlib import Path
 
 from mirror import gltf_split
-from mirror.common import FILE_LIMIT, HUB, ORG, ROOT, get, gh, load_plan, load_source, size_label
+from mirror.common import CODE_REPO, FILE_LIMIT, MORE_ASSETS, NAME, ORG, REPORT_URL, ROOT, need_org, get, gh, load_plan, load_source, size_label
 
 TEMPLATE = ROOT / "mirror" / "template"
 GENERATED = {"README.md", "MANIFEST.tsv", ".mirror.json", "LICENSE", ".github/workflows/check.yml",
              ".github/workflows/update.yml", ".github/verify.py"}
 # Bump when a workflow template changes: cc0-mirror then re-seeds every repository (a repository's own token may not
 # change its workflows, so --self leaves .github/workflows/ alone; other template files it updates itself).
-TEMPLATE_VERSION = 2
+TEMPLATE_VERSION = 3
 BOT = ("github-actions[bot]", "41898282+github-actions[bot]@users.noreply.github.com")
 # Files a ZIP may hold that are not part of the asset.
 JUNK = ("__MACOSX/", ".DS_Store", "Thumbs.db", "desktop.ini")
@@ -63,10 +63,12 @@ def ensure_repo(src, repo, info):
     status, _ = gh("GET", f"repos/{ORG}/{repo}")
     if status == 200:
         return True
-    status, body = gh("POST", f"orgs/{ORG}/repos", {
+    status, owner = gh("GET", f"users/{ORG}")
+    where = f"orgs/{ORG}/repos" if status == 200 and owner.get("type") == "Organization" else "user/repos"
+    status, body = gh("POST", where, {
         "name": repo,
         "description": f"{src.TITLE}: " + " ".join(x for x in (info["category"], kind_title(src, info).lower()) if x) + " (CC0), kept here for game makers. "
-                       f"Part of zuujis-cc0.",
+                       f"Part of {NAME}.",
         "homepage": src.SITE,
         "has_issues": False, "has_projects": False, "has_wiki": False, "has_discussions": False,
         "visibility": "public",
@@ -87,7 +89,8 @@ def cron_for(repo):
 
 def render_update(src, repo):
     text = (TEMPLATE / ".github/workflows/update.yml").read_text()
-    for key, value in (("@CRON@", cron_for(repo)), ("@SOURCE@", src.NAME), ("@REPO@", repo), ("@TITLE@", src.TITLE)):
+    for key, value in (("@CRON@", cron_for(repo)), ("@SOURCE@", src.NAME), ("@REPO@", repo), ("@TITLE@", src.TITLE),
+                       ("@MIRROR_REPO@", CODE_REPO)):
         text = text.replace(key, value)
     return text
 
@@ -103,22 +106,23 @@ def header(src, info, count):
 
 
 def footer():
+    report = f" or use the [private report form]({REPORT_URL})" if REPORT_URL else ""
     return ["", "---", "",
             f"Kept up to date by this repository's own [update workflow](.github/workflows/update.yml), with code and plan "
-            f"from [cc0-mirror](https://github.com/{ORG}/cc0-mirror). Something wrong? "
-            f"[Open an issue there](https://github.com/{ORG}/cc0-mirror/issues/new) or use the "
-            f"[private report form](https://games.zuujis.com/report).", ""]
+            f"from [{CODE_REPO.split('/')[-1]}](https://github.com/{CODE_REPO}). Something wrong? "
+            f"[Open an issue there](https://github.com/{CODE_REPO}/issues/new){report}.", ""]
 
 
 def readme(src, info, assets, metas, total, skipped):
     lines = header(src, info, len(assets)) + [
         f"{src.ABOUT[info['kind']]} {size_label(total)} in all.",
         "",
-        f"This is a copy kept by [zuujis-cc0](https://github.com/{ORG}) so game makers can take single files from GitHub. "
+        f"This is a copy kept by [{NAME}](https://github.com/{ORG}) so game makers can take single files from GitHub. "
         f"It is not made by or affiliated with {src.TITLE}: the originals, often in more formats and higher resolutions, "
         f"are on [{src.SITE.split('//')[1]}]({src.SITE}). If they help you, consider [supporting {src.TITLE}]({src.SUPPORT_URL}).",
         "",
-        f"Every file is listed in [MANIFEST.tsv](MANIFEST.tsv) with its size and SHA-256. More free assets: [the collection]({HUB}#readme).",
+        "Every file is listed in [MANIFEST.tsv](MANIFEST.tsv) with its size and SHA-256."
+        + (f" More free assets: [{MORE_ASSETS['label']}]({MORE_ASSETS['url']})." if MORE_ASSETS else ""),
         "",
         "| | | | |",
         "| :-: | :-: | :-: | :-: |",
@@ -168,6 +172,7 @@ def main():
     mode.add_argument("--dry-run", action="store_true", help="fill a fresh copy in --workdir; push nothing")
     ap.add_argument("--workdir", type=Path, default=ROOT / "work")
     opts = ap.parse_args()
+    need_org()
     src = load_source(opts.source)
     plan = load_plan(opts.source)
     info = plan["repos"][opts.repo]

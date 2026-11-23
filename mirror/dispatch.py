@@ -14,7 +14,7 @@ import json
 import sys
 import time
 
-from mirror.common import ORG, gh, load_source
+from mirror.common import need_org, ORG, gh, load_source
 
 POLL = 30
 
@@ -51,6 +51,7 @@ def main():
     ap.add_argument("repos")
     ap.add_argument("--budget", type=int, default=int(5.5 * 3600))
     opts = ap.parse_args()
+    need_org()
     todo, every = json.loads(opts.dispatch), json.loads(opts.repos)
     deadline = time.monotonic() + opts.budget
 
