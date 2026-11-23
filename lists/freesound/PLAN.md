@@ -41,6 +41,6 @@ hand if its name is unclear. Never download sound files.
 
 ## State
 
-- 2026-11-23: first pass over 25 creators (1 page each) started; `packs.json` here holds whatever it finished.
+- 2026-11-23: first pass over 25 creators (first listing page each, 15 packs a page) finished; results in `packs.json`. Creators with more pages (unfa has 75 packs) need `python3 packs.py NAME 5 append`. Not found or no packs: felixblume, Leszek_Szary, suntemple, Fins, nsstudios, MATRIXXX_ (check their exact usernames).
   First results: Breviceps 5/5 CC0, unfa 15/15 (75 packs in all, more pages), qubodup 14/15.
 - Next: finish the pass, pick packs per category, build the repository as above, then the links.
