@@ -1,0 +1,111 @@
+# Plans the zuujis-cc0 mirror repositories, creates and fills new ones, and starts the others' own updates.
+#
+# Each mirror repository updates itself (its .github/workflows/update.yml, weekly at its own time, with its own
+# token). This workflow does what a repository cannot do for itself:
+#   plan:     reads the source's catalogue, gives every new asset a repository (plan/SOURCE.json, committed here).
+#   fill:     one job per repository that is new, or whose workflow files are older than the template: creates it,
+#             downloads and checks its files, pushes (needs MIRROR_TOKEN).
+#   dispatch: starts the update workflow of repositories the plan has given new or changed assets, and keeps every
+#             repository's schedule switched on (GitHub turns schedules off after 60 days without activity).
+#
+# Weekly, or by hand (Actions → mirror → Run workflow) with a source, an optional list of repositories and a limit.
+# MIRROR_TOKEN is an organisation secret: a fine-grained token for zuujis-cc0 with Administration, Contents,
+# Workflows and Actions read/write on all its repositories (see README.md). Only actions published by GitHub,
+# pinned by commit.
+name: mirror
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Source to mirror
+        default: polyhaven
+        type: choice
+        options: [polyhaven]
+      only:
+        description: Only these repositories (comma-separated; empty for all)
+        default: ""
+      limit:
+        description: At most this many repositories to fill this run (0 for all)
+        default: "0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+env:
+  SOURCE: ${{ inputs.source || 'polyhaven' }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      central: ${{ steps.plan.outputs.central }}
+      central_count: ${{ steps.plan.outputs.central_count }}
+      dispatch: ${{ steps.plan.outputs.dispatch }}
+      repos: ${{ steps.plan.outputs.repos }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Plan
+        id: plan
+        env:
+          ONLY: ${{ inputs.only }}
+          LIMIT: ${{ inputs.limit || '0' }}
+        run: python3 -m mirror.plan "$SOURCE" --matrix --only "$ONLY" --limit "$LIMIT" >> "$GITHUB_OUTPUT"
+      - name: Save the plan
+        # plan/checked.txt changes every run, so this repository never goes 60 days without activity.
+        run: |
+          date -u +%Y-%m-%d > plan/checked.txt
+          git add plan
+          if ! git diff --cached --quiet; then
+            git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Plan: $SOURCE"
+            git push -q
+          fi
+
+  fill:
+    needs: plan
+    if: needs.plan.outputs.central_count != '0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        repo: ${{ fromJSON(needs.plan.outputs.central) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main # the plan job may have just pushed
+          persist-credentials: false
+      - name: Fill ${{ matrix.repo }}
+        env:
+          MIRROR_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          REPO: ${{ matrix.repo }}
+        run: python3 -m mirror.sync "$SOURCE" "$REPO" --workdir "$RUNNER_TEMP/work"
+
+  dispatch:
+    needs: [plan, fill]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Start updates and keep schedules on
+        env:
+          GH_TOKEN: ${{ secrets.MIRROR_TOKEN }}
+          DISPATCH: ${{ needs.plan.outputs.dispatch }}
+          REPOS: ${{ needs.plan.outputs.repos }}
+        run: |
+          for r in $(jq -r '.[]' <<<"$REPOS"); do
+            gh api -X PUT "repos/zuujis-cc0/$r/actions/workflows/update.yml/enable" --silent 2>/dev/null || true
+          done
+          for r in $(jq -r '.[]' <<<"$DISPATCH"); do
+            echo "starting $r"
+            gh api -X POST "repos/zuujis-cc0/$r/actions/workflows/update.yml/dispatches" -f ref=main --silent
+          done

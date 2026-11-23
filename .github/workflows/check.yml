@@ -1,0 +1,31 @@
+# Unit tests (no network) and a compile check of every script, on every push and pull request.
+# Only an action published by GitHub itself, pinned by commit; read-only token.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compile
+        run: python3 -m compileall -q mirror tests
+      - name: Tests
+        run: python3 -m unittest discover -s tests -t .
+      - name: Plans are valid JSON
+        run: for f in plan/*.json; do python3 -m json.tool "$f" > /dev/null; done
