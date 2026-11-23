@@ -98,5 +98,28 @@ class TemplateTest(unittest.TestCase):
         self.assertTrue(0 <= int(minute) < 60 and 0 <= int(hour) < 24 and 0 <= int(dow) < 7)
 
 
+class CatalogTest(unittest.TestCase):
+    def test_topics_group_across_sources(self):
+        from mirror.catalog import TOPICS, topic_of
+        cases = [
+            ("polyhaven", "wood_floor", {"kind": "textures", "category": "Wood"}, "wood"),
+            ("ambientcg", "WoodFloor041", {"kind": "materials", "category": "Wood Floor"}, "wood"),
+            ("ambientcg", "WoodFloorSubstance009", {"kind": "substances", "category": ""}, "wood"),
+            ("ambientcg", "PaintedMetal004", {"kind": "materials", "category": "Painted Metal"}, "metal"),
+            ("ambientcg", "PavingStones130", {"kind": "materials", "category": "Paving Stones"}, "paving"),
+            ("ambientcg", "Onyx010", {"kind": "materials", "category": "More"}, "stone"),
+            ("ambientcg", "Fingerprints005", {"kind": "materials", "category": "More"}, "wear"),
+            ("ambientcg", "EveningSkyHDRI031", {"kind": "hdris", "category": ""}, "sky-night"),
+            ("ambientcg", "IndoorEnvironmentHDRI004", {"kind": "hdris", "category": ""}, "scene-indoor"),
+            ("ambientcg", "3DBread004", {"kind": "models", "category": ""}, "food"),
+            ("polyhaven", "kloppenheim", {"kind": "hdris", "category": "Pure Skies"}, "sky-day"),
+            ("polyhaven", "ArmChair_01", {"kind": "models", "category": "Furniture"}, "furniture"),
+            ("opengameart", "tiny-town", {"kind": "2d-art"}, "art-2d"),
+        ]
+        for source, aid, meta, want in cases:
+            self.assertEqual(topic_of(source, aid, meta), want, aid)
+            self.assertIn(want, TOPICS)
+
+
 if __name__ == "__main__":
     unittest.main()

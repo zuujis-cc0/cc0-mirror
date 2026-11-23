@@ -1,0 +1,46 @@
+# Rebuilds this catalogue every day from @MIRROR_REPO@'s plans and the mirror repositories' own state.
+# Uses only this repository's own token. Only actions published by GitHub itself, pinned by commit.
+name: update
+
+on:
+  schedule:
+    - cron: "40 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repo
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: @MIRROR_REPO@
+          path: cc0-mirror
+          persist-credentials: false
+      - name: Build the catalogue
+        working-directory: cc0-mirror
+        env:
+          MIRROR_ORG: ${{ github.repository_owner }}
+          MIRROR_REPO: "@MIRROR_REPO@"
+        run: python3 -m mirror.catalog --out "$GITHUB_WORKSPACE/repo"
+      - name: Push it
+        working-directory: repo
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "nothing changed"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Catalogue: $(date -u +%Y-%m-%d)"
+          git push -q

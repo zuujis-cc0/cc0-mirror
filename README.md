@@ -40,6 +40,10 @@ cc0-mirror (this repository)                          each mirror repository
   `update.yml` runs) downloads every file (checked against the source's size, and MD5 where given; ZIPs, 7z and RAR
   unpacked; unchanged assets carried over without downloading), writes `previews/`, `README.md`, `MANIFEST.tsv` and
   `.mirror.json`, runs the repository's check and pushes. `--dry-run` fills a fresh copy in `work/`, touching nothing.
+- **`mirror/catalog.py`**: the catalogue, [cc0-catalog](https://github.com/zuujis-cc0/cc0-catalog): every asset
+  regrouped by what it is (wood, stone, skies, furniture...) across sources, a page per topic with a picture of each
+  asset and links to its folder and the original. That repository rebuilds it every day in its own workflow;
+  `--setup` writes that workflow for a new catalogue (`python3 -m mirror.catalog --out DIR --setup`).
 - **`mirror/dispatch.py`**: starts repositories' updates, at most `MAX_PARALLEL` per source at once, waits for each.
 - **`mirror/gltf_split.py`**: git refuses files over 100 MB. A glTF model whose `.bin` is bigger (some of Poly Haven's
   trees reach 949 MB) has its buffer split into parts of at most 90 MB, and its `.gltf` lists the parts. The model
