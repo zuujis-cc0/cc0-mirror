@@ -21,6 +21,10 @@ on:
       sources:
         description: Sources (comma-separated)
         default: polyhaven,ambientcg,opengameart
+      published_plan:
+        description: Seed and fill from the published plan without refreshing catalogues
+        type: boolean
+        default: false
       only:
         description: Only these repositories (comma-separated; empty for all)
         default: ""
@@ -32,7 +36,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: mirror
+  group: ${{ inputs.published_plan && 'mirror-published-plan' || 'mirror' }}
   cancel-in-progress: false
 
 env:
@@ -54,13 +58,19 @@ jobs:
       - name: Plan
         id: plan
         env:
+          PUBLISHED_PLAN: ${{ inputs.published_plan }}
           ONLY: ${{ inputs.only }}
           LIMIT: ${{ inputs.limit || '0' }}
           OGA_BUDGET: "16200" # 4.5 hours of OpenGameArt's catalogue per run (it asks for 10 s between requests)
-        run: python3 -m mirror.plan "$SOURCES" --matrix --only "$ONLY" --limit "$LIMIT" >> "$GITHUB_OUTPUT"
+        run: |
+          args=(--matrix --only "$ONLY" --limit "$LIMIT")
+          if [[ "$PUBLISHED_PLAN" == true ]]; then
+            args+=(--published-plan)
+          fi
+          python3 -m mirror.plan "$SOURCES" "${args[@]}" >> "$GITHUB_OUTPUT"
       - name: Save the plan
         # plan/checked.txt changes every run, so this repository never goes 60 days without activity.
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && !inputs.published_plan }}
         run: |
           date -u +%Y-%m-%d > plan/checked.txt
           git add plan

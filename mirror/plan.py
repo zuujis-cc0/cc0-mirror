@@ -1,6 +1,6 @@
 """Decide which repository holds each asset, and which repositories are out of date.
 
-    python3 -m mirror.plan SOURCE[,SOURCE...] [--matrix] [--limit N] [--only REPO,REPO]
+    python3 -m mirror.plan SOURCE[,SOURCE...] [--matrix] [--published-plan] [--limit N] [--only REPO,REPO]
 
 Reads each source's catalogue, updates plan/SOURCE.json and lists the repositories to set up (seed: create them and
 give them their workflows) and the ones to start (dispatch: they fill or update themselves), as GitHub Actions outputs
@@ -56,10 +56,9 @@ def mirrored_state(repo):
         raise
 
 
-def plan_source(name, only=(), limit=0):
-    """Update plan/NAME.json. Returns (seed, dispatch, repos) for that source."""
+def refresh_plan(name, plan):
+    """Refresh the saved plan from the source catalogue."""
     src = load_source(name)
-    plan = load_plan(name)
     takes_previous = "previous" in inspect.signature(src.catalogue).parameters
     cat = src.catalogue(plan) if takes_previous else src.catalogue()
 
@@ -95,7 +94,15 @@ def plan_source(name, only=(), limit=0):
     for aid, a in plan["assets"].items():
         a["meta"] = {k: v for k, v in cat[aid].items() if k != "hash"}
     save_plan(name, plan)
+    print(f"{name}: {len(todo)} new or changed, {len(gone)} gone, {len(plan['skipped'])} skipped",
+          file=sys.stderr)
 
+
+def plan_source(name, only=(), limit=0, published_plan=False):
+    """Return (seed, dispatch, repos), refreshing the plan unless told to use it as published."""
+    plan = load_plan(name)
+    if not published_plan:
+        refresh_plan(name, plan)
     repos = sorted(plan["repos"])
     if only:
         repos = [r for r in repos if r in only]
@@ -114,7 +121,6 @@ def plan_source(name, only=(), limit=0):
         dispatch = dispatch[:limit]
         seed = [r for r in seed if r in dispatch or have[r] is not None][:limit]
     print(f"{name}: {len(plan['assets'])} assets in {len(plan['repos'])} repositories; "
-          f"{len(todo)} new or changed, {len(gone)} gone, {len(plan['skipped'])} skipped; "
           f"{len(seed)} to set up, {len(dispatch)} to fill or update themselves", file=sys.stderr)
     return seed, dispatch, repos
 
@@ -124,13 +130,14 @@ def main():
     ap.add_argument("sources", help="comma-separated, e.g. polyhaven,ambientcg")
     ap.add_argument("--matrix", action="store_true", help="print GitHub Actions outputs")
     ap.add_argument("--limit", type=int, default=0, help="at most this many repositories per source (0: all)")
+    ap.add_argument("--published-plan", action="store_true", help="use saved plans without refreshing source catalogues")
     ap.add_argument("--only", default="", help="comma-separated repositories to consider")
     opts = ap.parse_args()
     need_org()
     only = set(filter(None, opts.only.split(",")))
     seed, dispatch, repos = [], [], []
     for name in filter(None, opts.sources.split(",")):
-        s, d, r = plan_source(name, only, opts.limit)
+        s, d, r = plan_source(name, only, opts.limit, published_plan=opts.published_plan)
         seed += [{"source": name, "repo": x} for x in s]
         dispatch += [{"source": name, "repo": x} for x in d]
         repos += [{"source": name, "repo": x} for x in r]

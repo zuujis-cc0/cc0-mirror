@@ -57,6 +57,8 @@ to **all repositories** and read/write for **Administration** (create repositori
 **Actions** (start and re-enable `update.yml`). The mirror repositories' own updates need no secret.
 
 Run by hand: *Actions → mirror → Run workflow* (a source, optionally some repositories, and a limit for a trial run).
+Select **Seed and fill from the published plan** with sources `polyhaven,ambientcg` to start those queues
+while the regular workflow is scanning OpenGameArt. Each source keeps its existing parallel update limit.
 Locally (Python 3.10+, standard library only):
 
 ```bash
