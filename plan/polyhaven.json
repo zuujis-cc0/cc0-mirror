@@ -358,7 +358,7 @@
    "group": "textures-Textiles & Leather",
    "category": "Textiles & Leather",
    "kind": "textures",
-   "bytes": 111934399
+   "bytes": 130287132
   },
   "polyhaven-textures-wood": {
    "group": "textures-Wood",
@@ -36464,6 +36464,23 @@
     "page": "https://polyhaven.com/a/tatami_mat",
     "thumb_ext": "webp",
     "thumb": "https://cdn.polyhaven.com/asset_img/thumbs/tatami_mat.png?width=192&height=192&format=webp&v=fc09bd48"
+   }
+  },
+  "tatami_mat_borderless": {
+   "repo": "polyhaven-textures-textiles-and-leather-3",
+   "hash": "9e9bc59df86ecffd1dd2cc31fe0f95821be2ab84",
+   "bytes": 18352733,
+   "meta": {
+    "kind": "textures",
+    "group": "textures-Textiles & Leather",
+    "category": "Textiles & Leather",
+    "name": "Tatami Mat Borderless",
+    "authors": [
+     "Charlotte Baglioni"
+    ],
+    "page": "https://polyhaven.com/a/tatami_mat_borderless",
+    "thumb_ext": "webp",
+    "thumb": "https://cdn.polyhaven.com/asset_img/thumbs/tatami_mat_borderless.png?width=192&height=192&format=webp&v=be54bfbe"
    }
   },
   "tea_set_01": {
