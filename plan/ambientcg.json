@@ -196,7 +196,7 @@
    "group": "materials-Fabric",
    "category": "Fabric",
    "kind": "materials",
-   "bytes": 669661870
+   "bytes": 713268798
   },
   "ambientcg-materials-facade": {
    "group": "materials-Facade",
@@ -28774,6 +28774,37 @@
       "name": "Fabric086_2K-JPG.zip",
       "url": "https://ambientcg.com/get?file=Fabric086_2K-JPG.zip",
       "size": 23893364,
+      "attribute": "2K-JPG",
+      "type": "zip"
+     }
+    ]
+   }
+  },
+  "Fabric087": {
+   "repo": "ambientcg-materials-fabric-4",
+   "hash": "8fd195a9082aadb21cd268afee749a747f239fce",
+   "bytes": 43606928,
+   "meta": {
+    "kind": "materials",
+    "group": "materials-Fabric",
+    "category": "Fabric",
+    "name": "Fabric 087",
+    "authors": [],
+    "page": "https://ambientcg.com/a/Fabric087",
+    "thumb": "https://acg-media.struffelproductions.com/file/ambientCG-Web/media/thumbnail/256-PNG/Fabric087.png",
+    "thumb_ext": "png",
+    "downloads": [
+     {
+      "name": "Fabric087_1K-JPG.zip",
+      "url": "https://ambientcg.com/get?file=Fabric087_1K-JPG.zip",
+      "size": 10132372,
+      "attribute": "1K-JPG",
+      "type": "zip"
+     },
+     {
+      "name": "Fabric087_2K-JPG.zip",
+      "url": "https://ambientcg.com/get?file=Fabric087_2K-JPG.zip",
+      "size": 33474556,
       "attribute": "2K-JPG",
       "type": "zip"
      }
