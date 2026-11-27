@@ -310,7 +310,7 @@
    "group": "textures-Plastic & Rubber",
    "category": "Plastic & Rubber",
    "kind": "textures",
-   "bytes": 153559111
+   "bytes": 176204141
   },
   "polyhaven-textures-stone": {
    "group": "textures-Stone",
@@ -10527,6 +10527,23 @@
     "page": "https://polyhaven.com/a/dartboard",
     "thumb_ext": "webp",
     "thumb": "https://cdn.polyhaven.com/asset_img/thumbs/dartboard.png?width=192&height=192&format=webp&v=23eabc30"
+   }
+  },
+  "dashed_anti_skid_tiles": {
+   "repo": "polyhaven-textures-plastic-and-rubber",
+   "hash": "634f8a775884925b7566fef85ede8f7b519ff157",
+   "bytes": 22645030,
+   "meta": {
+    "kind": "textures",
+    "group": "textures-Plastic & Rubber",
+    "category": "Plastic & Rubber",
+    "name": "Dashed Anti Skid Tiles",
+    "authors": [
+     "Amal Kumar"
+    ],
+    "page": "https://polyhaven.com/a/dashed_anti_skid_tiles",
+    "thumb_ext": "webp",
+    "thumb": "https://cdn.polyhaven.com/asset_img/thumbs/dashed_anti_skid_tiles.png?width=192&height=192&format=webp&v=d42a1fcf"
    }
   },
   "de_balie": {
